@@ -20,13 +20,13 @@
 import re
 import threading
 
+from logbook import Logger
 from sqlalchemy import MetaData, create_engine, event
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import scoped_session, sessionmaker
+
+from eos import config
 
 from . import migration
-from eos import config
-from logbook import Logger
-
 
 pyfalog = Logger(__name__)
 pyfalog.info("Initializing database")
@@ -48,22 +48,33 @@ def re_fn(expr, item):
     return reg.search(item) is not None
 
 
-pyfalog.debug('Initializing gamedata')
+pyfalog.debug("Initializing gamedata")
 gamedata_connectionstring = config.gamedata_connectionstring
 if callable(gamedata_connectionstring):
-    gamedata_engine = create_engine("sqlite://", creator=gamedata_connectionstring, echo=config.debug)
+    gamedata_engine = create_engine(
+        "sqlite://",
+        creator=gamedata_connectionstring,
+        echo=config.debug,
+        connect_args={"check_same_thread": False},
+    )
 else:
-    gamedata_engine = create_engine(gamedata_connectionstring, echo=config.debug)
+    gamedata_engine = create_engine(
+        gamedata_connectionstring,
+        echo=config.debug,
+        connect_args={"check_same_thread": False},
+    )
 
 
-@event.listens_for(gamedata_engine, 'connect')
+@event.listens_for(gamedata_engine, "connect")
 def create_functions(dbapi_connection, connection_record):
-    dbapi_connection.create_function('regexp', 2, re_fn)
+    dbapi_connection.create_function("regexp", 2, re_fn)
 
 
 gamedata_meta = MetaData()
 gamedata_meta.bind = gamedata_engine
-GamedataSession = scoped_session(sessionmaker(bind=gamedata_engine, autoflush=False, expire_on_commit=False))
+GamedataSession = scoped_session(
+    sessionmaker(bind=gamedata_engine, autoflush=False, expire_on_commit=False)
+)
 gamedata_session = GamedataSession()
 
 gamedata_sessions = {threading.get_ident(): gamedata_session}
@@ -76,12 +87,12 @@ def get_gamedata_session():
     return gamedata_sessions[thread_id]
 
 
-pyfalog.debug('Getting gamedata version')
+pyfalog.debug("Getting gamedata version")
 # This should be moved elsewhere, maybe as an actual query. Current, without try-except, it breaks when making a new
 # game db because we haven't reached gamedata_meta.create_all()
 try:
     config.gamedata_version = gamedata_session.execute(
-            "SELECT `field_value` FROM `metadata` WHERE `field_name` LIKE 'client_build'"
+        "SELECT `field_value` FROM `metadata` WHERE `field_name` LIKE 'client_build'"
     ).fetchone()[0]
     config.gamedata_date = gamedata_session.execute(
         "SELECT `field_value` FROM `metadata` WHERE `field_name` LIKE 'dump_time'"
@@ -94,36 +105,83 @@ except Exception as e:
     config.gamedata_version = None
     config.gamedata_date = None
 
-pyfalog.debug('Initializing saveddata')
+pyfalog.debug("Initializing saveddata")
 saveddata_connectionstring = config.saveddata_connectionstring
 if saveddata_connectionstring is not None:
     if callable(saveddata_connectionstring):
-        saveddata_engine = create_engine(creator=saveddata_connectionstring, echo=config.debug)
+        saveddata_engine = create_engine(
+            creator=saveddata_connectionstring,
+            echo=config.debug,
+            connect_args={"check_same_thread": False},
+        )
     else:
-        saveddata_engine = create_engine(saveddata_connectionstring, echo=config.debug)
+        saveddata_engine = create_engine(
+            saveddata_connectionstring,
+            echo=config.debug,
+            connect_args={"check_same_thread": False},
+        )
 
     saveddata_meta = MetaData()
     saveddata_meta.bind = saveddata_engine
-    saveddata_session = sessionmaker(bind=saveddata_engine, autoflush=False, expire_on_commit=False)()
+    saveddata_session = sessionmaker(
+        bind=saveddata_engine, autoflush=False, expire_on_commit=False
+    )()
 else:
     saveddata_meta = None
 
 # Lock controlling any changes introduced to session
 sd_lock = threading.RLock()
 
-pyfalog.debug('Importing gamedata DB scheme')
+pyfalog.debug("Importing gamedata DB scheme")
 # Import all the definitions for all our database stuff
 # noinspection PyPep8
-from eos.db.gamedata import alphaClones, attribute, category, effect, group, item, marketGroup, metaData, metaGroup, queries, traits, unit, dynamicAttributes, implantSet
-pyfalog.debug('Importing saveddata DB scheme')
-# noinspection PyPep8
-from eos.db.saveddata import booster, cargo, character, damagePattern, databaseRepair, drone, fighter, fit, implant, implantSet, \
-    miscData, mutatorMod, mutatorDrone, module, override, price, queries, skill, targetProfile, user
+from eos.db.gamedata import (
+    alphaClones,
+    attribute,
+    category,
+    dynamicAttributes,
+    effect,
+    group,
+    implantSet,
+    item,
+    marketGroup,
+    metaData,
+    metaGroup,
+    queries,
+    traits,
+    unit,
+)
 
-pyfalog.debug('Importing gamedata queries')
+pyfalog.debug("Importing saveddata DB scheme")
+# noinspection PyPep8
+from eos.db.saveddata import (
+    booster,
+    cargo,
+    character,
+    damagePattern,
+    databaseRepair,
+    drone,
+    fighter,
+    fit,
+    implant,
+    implantSet,
+    miscData,
+    module,
+    mutatorDrone,
+    mutatorMod,
+    override,
+    price,
+    queries,
+    skill,
+    targetProfile,
+    user,
+)
+
+pyfalog.debug("Importing gamedata queries")
 # noinspection PyPep8
 from eos.db.gamedata.queries import *
-pyfalog.debug('Importing saveddata queries')
+
+pyfalog.debug("Importing saveddata queries")
 # noinspection PyPep8
 from eos.db.saveddata.queries import *
 
