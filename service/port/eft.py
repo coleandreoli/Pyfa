@@ -20,8 +20,6 @@
 
 import re
 
-from logbook import Logger
-
 from eos.const import FittingModuleState, FittingSlot
 from eos.db.gamedata.queries import getDynamicItem
 from eos.saveddata.booster import Booster
@@ -33,15 +31,29 @@ from eos.saveddata.fit import Fit
 from eos.saveddata.implant import Implant
 from eos.saveddata.module import Module
 from eos.saveddata.ship import Ship
-from gui.fitCommands.helpers import activeStateLimit
+from logbook import Logger
+
 from service.const import PortEftOptions
-from service.fit import Fit as svcFit
-from service.market import Market
 from service.port.muta import parseMutant, renderMutant
 from service.port.shared import fetchItem
 
-
 pyfalog = Logger(__name__)
+
+
+def activeStateLimit(item):
+    # item is already a game Item object; no Market lookup needed
+    if {
+        'moduleBonusAssaultDamageControl', 'moduleBonusIndustrialInvulnerability',
+        'microJumpDrive', 'microJumpPortalDrive', 'emergencyHullEnergizer',
+        'cynosuralGeneration', 'jumpPortalGeneration', 'jumpPortalGenerationBO',
+        'cloneJumpAccepting', 'cloakingWarpSafe', 'cloakingPrototype', 'cloaking',
+        'massEntanglerEffect5', 'electronicAttributeModifyOnline', 'targetPassively',
+        'cargoScan', 'shipScan', 'surveyScan', 'targetSpectrumBreakerBonus',
+        'interdictionNullifierBonus', 'warpCoreStabilizerActive',
+        'industrialItemCompression'
+    }.intersection(item.effects):
+        return FittingModuleState.ONLINE
+    return FittingModuleState.ACTIVE
 
 MODULE_CATS = ('Module', 'Subsystem', 'Structure Module')
 SLOT_ORDER = (FittingSlot.LOW, FittingSlot.MED, FittingSlot.HIGH, FittingSlot.RIG, FittingSlot.SUBSYSTEM, FittingSlot.SERVICE)
@@ -336,9 +348,8 @@ def importEft(lines):
         elif m.fits(fit):
             m.owner = fit
             fit.modules.replaceRackPosition(i, m)
-    sFit = svcFit.getInstance()
-    sFit.recalc(fit)
-    sFit.fill(fit)
+    fit.calculateModifiedAttributes()
+    fit.fill()
 
     # Other stuff
     for modRack in (
@@ -374,6 +385,7 @@ def importEft(lines):
 
 def importEftCfg(shipname, lines, progress):
     """Handle import from EFT config store file"""
+    from service.market import Market
 
     # Check if we have such ship in database, bail if we don't
     sMkt = Market.getInstance()
@@ -556,9 +568,8 @@ def importEftCfg(shipname, lines, progress):
                         moduleList.append(m)
 
             # Recalc to get slot numbers correct for T3 cruisers
-            sFit = svcFit.getInstance()
-            sFit.recalc(fitobj)
-            sFit.fill(fitobj)
+            fitobj.calculateModifiedAttributes()
+            fitobj.fill()
 
             for module in moduleList:
                 if module.fits(fitobj):
@@ -973,6 +984,7 @@ def lineIter(text):
 
 
 def parseAdditions(text, mutaData=None):
+    from service.market import Market
     items = []
     sMkt = Market.getInstance()
     pattern = r'^(?P<typeName>{}+?)( x(?P<amount>\d+?))?(\s*\[(?P<mutaref>\d+?)\])?$'.format(NAME_CHARS)
